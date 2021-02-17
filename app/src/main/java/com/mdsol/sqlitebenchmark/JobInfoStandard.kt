@@ -3,7 +3,6 @@ package com.mdsol.sqlitebenchmark
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.*
 
 @Entity(indices = [Index(value = ["id"])])
 

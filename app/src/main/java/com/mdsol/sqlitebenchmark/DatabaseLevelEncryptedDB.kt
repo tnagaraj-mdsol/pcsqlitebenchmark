@@ -27,7 +27,7 @@ abstract class DatabaseLevelEncryptedDB : RoomDatabase() {
     companion object {
         @Volatile
         private var databaseLevelEncryptedDB: DatabaseLevelEncryptedDB? = null
-        const val passphrase = "@veryC0mplic@tedPhra$$"
+        private const val passphrase = "@veryC0mplic@tedPhra$$"
 
         fun getInstance(context: Context): DatabaseLevelEncryptedDB {
 

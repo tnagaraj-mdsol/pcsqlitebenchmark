@@ -10,14 +10,12 @@ import androidx.appcompat.app.AppCompatActivity
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.snackbar.Snackbar
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
-    private var ioScope = CoroutineScope(Dispatchers.IO)
+    private val job: Job = SupervisorJob()
+    private var ioScope = CoroutineScope(Dispatchers.IO + job)
 
     private lateinit var columnEncryptedDB: ColumnLevelEncryptedDB
     private lateinit var dbEncryptedDB: DatabaseLevelEncryptedDB
@@ -26,11 +24,11 @@ class MainActivity : AppCompatActivity() {
     private val DBTAG = "EncryptedDB"
 
 
-    private val db: ColumnLevelEncryptedDB
-        get() {
-            CryptoUtil.generateAesKeyAndIVForDataEncryption(this.applicationContext)
-            return ColumnLevelEncryptedDB.getInstance(this)
-        }
+//    private val db: ColumnLevelEncryptedDB
+//        get() {
+//            CryptoUtil.generateAesKeyAndIVForDataEncryption(this.applicationContext)
+//            return ColumnLevelEncryptedDB.getInstance(this)
+//        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,7 +41,7 @@ class MainActivity : AppCompatActivity() {
         }
         ioScope = CoroutineScope(Dispatchers.IO)
         createDatabases()
-        insertData()
+        runAllQueries()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -66,11 +64,9 @@ class MainActivity : AppCompatActivity() {
         CryptoUtil.generateAesKeyAndIVForDataEncryption(this.applicationContext)
         columnEncryptedDB = ColumnLevelEncryptedDB.getInstance(this)
         dbEncryptedDB = DatabaseLevelEncryptedDB.getInstance(this)
-
-
     }
 
-    private fun insertData() {
+    private fun runAllQueries() {
 
         // Build datasets first, then calculate SQL time
 
@@ -83,7 +79,7 @@ class MainActivity : AppCompatActivity() {
         val jobList = mutableListOf<JobInfo>()
         val jobListStandard = mutableListOf<JobInfoStandard>()
 
-        for (i in 1..1000) {
+        for (i in 1..10000) {
             // Generate random values
             val firstName = getRandomString(10)
             val lastName = getRandomString(10)
@@ -109,6 +105,7 @@ class MainActivity : AppCompatActivity() {
             addressList.add(Address(i, address1, address2, city, state, zip))
             addressStandardList.add(AddressStandard(i, address1, address2, city, state, zip))
         }
+
         ioScope.launch {
 
             var start = SystemClock.elapsedRealtime()
@@ -118,7 +115,7 @@ class MainActivity : AppCompatActivity() {
 
             var stop = SystemClock.elapsedRealtime()
             var time = (stop - start)
-            Log.i(COLUMNTAG, "INSERTION: $time ms")
+            Log.i(COLUMNTAG, "INSERT QUERY: $time ms")
 
             start = SystemClock.elapsedRealtime()
             dbEncryptedDB.addressStandardDao().insertStandardAddressList(addressStandardList)
@@ -126,148 +123,169 @@ class MainActivity : AppCompatActivity() {
             dbEncryptedDB.personStandardDao().insertPersonStandardList(personStandardList)
             stop = SystemClock.elapsedRealtime()
             time = (stop - start)
-            Log.i(DBTAG, "INSERTION: $time ms")
-            val isActive = ioScope.isActive
-        }.invokeOnCompletion { selectQueriesIndexed() }
+            Log.i(DBTAG, "INSERT QUERY: $time ms")
 
 
-    }
-
-    private fun selectQueriesIndexed() {
-        //At this point data has already been inserted in both DBs
-        ioScope.launch {
-            var start = SystemClock.elapsedRealtime()
-            for (i in 1..1000) {
+            //SELECT INDEXED
+            start = SystemClock.elapsedRealtime()
+            for (i in 1..5000) {
                 columnEncryptedDB.personDao().getById(i)
             }
-            var end = SystemClock.elapsedRealtime()
-            var time = end - start
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
             Log.i(COLUMNTAG, "INDEXED SELECT QUERIES: $time ms")
 
             start = SystemClock.elapsedRealtime()
 
-            for (i in 1..1000) {
+            for (i in 1..5000) {
                 dbEncryptedDB.personStandardDao().getById(i)
             }
-            end = SystemClock.elapsedRealtime()
-            time = (end - start)
+            stop = SystemClock.elapsedRealtime()
+            time = (stop - start)
             Log.i(DBTAG, "INDEXED SELECT QUERIES: $time ms")
-            val isActive = ioScope.isActive
-        }.invokeOnCompletion { selectQueriesUnIndexed() }
-    }
 
-    private fun selectQueriesUnIndexed() {
 
-        ioScope.launch {
-            var start = SystemClock.elapsedRealtime()
-            for (i in 1..1000) {
-                val random = (3..10).random()
-                val s = getRandomString(random)
-                columnEncryptedDB.personDao().getByFirstName(s)
+            // SELECT UNINDEXED
+            val randomPersonList = mutableListOf<Person>()
+            val randomPersonListStandard = mutableListOf<PersonStandard>()
+            val random = Random()
+
+            // Populate list with random data used to construct the db
+            for (i in 0..999) {
+                val randomPerson = personList[random.nextInt(personList.size)]
+                val randomPersonStandard =
+                    personStandardList[random.nextInt(personStandardList.size)]
+                randomPersonList.add(randomPerson)
+                randomPersonListStandard.add(randomPersonStandard)
             }
-            var end = SystemClock.elapsedRealtime()
-            var time = end - start
+            start = SystemClock.elapsedRealtime()
+            for (randomPerson in randomPersonList) {
+                val person = columnEncryptedDB.personDao().getByFirstName(randomPerson.firstName!!)
+            }
+
+
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
             Log.i(COLUMNTAG, "UNINDEXED SELECT QUERIES: $time ms")
 
             start = SystemClock.elapsedRealtime()
-            for (i in 1..1000) {
-                val random = (3..10).random()
-                val s = getRandomString(random)
-                dbEncryptedDB.personStandardDao().getByFirstName(s)
+            for (randomPerson in randomPersonListStandard) {
+                val person =
+                    dbEncryptedDB.personStandardDao().getByFirstName(randomPerson.firstName!!)
             }
-            end = SystemClock.elapsedRealtime()
-            time = end - start
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
             Log.i(DBTAG, "UNINDEXED SELECT QUERIES: $time ms")
-            val isActive = ioScope.isActive
-        }.invokeOnCompletion { joinQueries() }
 
-    }
 
-    private fun joinQueries() {
-        ioScope.launch {
-            var start = SystemClock.elapsedRealtime()
+            //JOIN ON UNINDEXED
+            val zipList = mutableListOf<String>()
 
-            for (i in 1..1000) {
+            for (i in 0..999) {
                 val zip = (11111..99999).random().toString()
+                zipList.add(zip)
+            }
+            start = SystemClock.elapsedRealtime()
+
+            for (zip in zipList) {
                 columnEncryptedDB.personDao().findByZip(zip)
             }
-            var end = SystemClock.elapsedRealtime()
-            var time = end - start
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
 
-            Log.i(COLUMNTAG, "JOIN QUERIES: $time ms")
+            Log.i(COLUMNTAG, "JOIN ON UNINDEXED QUERIES: $time ms")
 
             start = SystemClock.elapsedRealtime()
 
-            for (i in 1..1000) {
-                val zip = (11111..99999).random().toString()
+            for (zip in zipList) {
                 dbEncryptedDB.personStandardDao().findByZip(zip)
             }
-            end = SystemClock.elapsedRealtime()
-            time = end - start
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
 
-            Log.i(DBTAG, "JOIN QUERIES: $time ms")
-
-
-        }.invokeOnCompletion { updateQueries() }
-    }
+            Log.i(DBTAG, "JOIN ON UNINDEXED QUERIES: $time ms")
 
 
-    private fun updateQueries() {
-//        ioScope =
-        ioScope.launch {
-            // get about a 1000 random records
-            val updateList = mutableListOf<Person>()
-            val updateListStandard = mutableListOf<PersonStandard>()
+            // JOIN ON INDEXED
 
-            for (i in 1..1000) {
-                val id = (1..1000).random()
-                val person = columnEncryptedDB.personDao().getById(id)
-                updateList.add(person)
-                val personStandard = dbEncryptedDB.personStandardDao().getById(id)
-                updateListStandard.add(personStandard)
+            for (i in 0..999) {
+                start = SystemClock.elapsedRealtime()
+                columnEncryptedDB.personDao().findByAddressId(i)
+                stop = SystemClock.elapsedRealtime()
             }
 
-            var start = SystemClock.elapsedRealtime()
-            columnEncryptedDB.personDao().updatePersons(updateList)
-            var end = SystemClock.elapsedRealtime()
-            var time = end - start
+            time = stop - start
+
+            Log.i(COLUMNTAG, "JOIN ON INDEXED QUERIES: $time ms")
+
+
+            start = SystemClock.elapsedRealtime()
+
+            for (i in 0..999) {
+                start = SystemClock.elapsedRealtime()
+                columnEncryptedDB.personDao().findByAddressId(i)
+                stop = SystemClock.elapsedRealtime()
+            }
+            time = stop - start
+
+            Log.i(DBTAG, "JOIN ON INDEXED QUERIES: $time ms")
+
+
+            //UPDATE
+            start = SystemClock.elapsedRealtime()
+            columnEncryptedDB.personDao().updatePersons(randomPersonList)
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
             Log.i(COLUMNTAG, "UPDATE QUERIES: $time ms")
 
             start = SystemClock.elapsedRealtime()
-            dbEncryptedDB.personStandardDao().updatePersons(updateListStandard)
-            end = SystemClock.elapsedRealtime()
-            time = end - start
+            dbEncryptedDB.personStandardDao().updatePersons(randomPersonListStandard)
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
             Log.i(DBTAG, "UPDATE QUERIES: $time ms")
-        }.invokeOnCompletion { deleteQueries() }
-    }
 
-    private fun deleteQueries() {
-        // get about a 1000 random records
-        val deleteList = mutableListOf<Person>()
-        val deleteListStandard = mutableListOf<PersonStandard>()
+            //DELETE WITH CLAUSE
+            start = SystemClock.elapsedRealtime()
+            columnEncryptedDB.personDao().deletePersons(randomPersonList)
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
+            Log.i(COLUMNTAG, "DELETE QUERIES: $time ms")
 
-        for (i in 1..1000) {
-            val id = (1..1000).random()
-            val person = columnEncryptedDB.personDao().getById(id)
-            deleteList.add(person)
-            val personStandard = dbEncryptedDB.personStandardDao().getById(id)
-            deleteListStandard.add(personStandard)
+            start = SystemClock.elapsedRealtime()
+            dbEncryptedDB.personStandardDao().deletePersons(randomPersonListStandard)
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
+            Log.i(DBTAG, "DELETE QUERIES: $time ms")
+
+
+            //SELECT ALL
+            start = SystemClock.elapsedRealtime()
+            val list = columnEncryptedDB.personDao().getAll()
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
+            Log.i(COLUMNTAG, "SELECT ALL QUERY: $time ms")
+
+            start = SystemClock.elapsedRealtime()
+            val listStandard = dbEncryptedDB.personStandardDao().getAll()
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
+            Log.i(DBTAG, "SELECT ALL QUERY: $time ms")
+
+
+            //DELETE ALL
+            start = SystemClock.elapsedRealtime()
+            columnEncryptedDB.personDao().deleteAll()
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
+            Log.i(COLUMNTAG, "DELETE ALL QUERY: $time ms")
+
+            start = SystemClock.elapsedRealtime()
+            dbEncryptedDB.personStandardDao().deleteAll()
+            stop = SystemClock.elapsedRealtime()
+            time = stop - start
+            Log.i(DBTAG, "DELETE ALL QUERY: $time ms")
         }
-
-        var start = SystemClock.elapsedRealtime()
-        columnEncryptedDB.personDao().deletePersons(deleteList)
-        var end = SystemClock.elapsedRealtime()
-        var time = end - start
-        Log.i(COLUMNTAG, "DELETE QUERIES: $time ms")
-
-        start = SystemClock.elapsedRealtime()
-        dbEncryptedDB.personStandardDao().deletePersons(deleteListStandard)
-        end = SystemClock.elapsedRealtime()
-        time = end - start
-        Log.i(DBTAG, "DELETE QUERIES: $time ms")
-        this.runOnUiThread { Toast.makeText(this, "COMPLETED!!!", Toast.LENGTH_LONG).show() }
     }
-
 
     private fun getRandomString(length: Int): String {
         val charset = "abcdefghijklmnopqrstuvwxyz"

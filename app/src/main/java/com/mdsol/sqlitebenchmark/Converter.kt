@@ -2,7 +2,6 @@ package com.mdsol.sqlitebenchmark
 
 
 import androidx.room.TypeConverter
-import java.util.*
 
 class Converter {
     companion object {
